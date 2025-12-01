@@ -104,10 +104,11 @@ with tab2:
     else:
         st.success("🎉 太棒了！您的退休金夠用了！")
 
-# === 分頁 3: AI 選股 (穩健回歸版) ===
+
+# === 分頁 3: AI 選股 (防接刀安全版) ===
 with tab3:
-    st.subheader("🤖 AI 投資管家")
-    st.caption("數據來源：Yahoo Finance (延遲報價)")
+    st.subheader("🤖 AI 投資管家 (含防接刀機制)")
+    st.caption("策略：季線撿便宜 + 年線當保險")
     
     stock_input = st.text_input("請輸入台股代號", "2330", help="輸入數字即可")
     
@@ -117,81 +118,87 @@ with tab3:
             ticker_code = ticker_code + ".TW"
 
         try:
-            with st.spinner(f"正在分析 {ticker_code}..."):
-                # 1. 使用 yfinance 抓取歷史資料 (半年)
-                # 這樣做一次連線就能拿到「現在股價」跟「均線數據」，效率最高
+            with st.spinner(f"正在深入分析 {ticker_code} 的長線趨勢..."):
+                # 1. 改成抓「一年」資料，這樣才算得出年線 (240MA)
                 stock = yf.Ticker(ticker_code)
-                hist = stock.history(period="6mo")
+                hist = stock.history(period="1y")
                 
                 if hist.empty:
-                    st.error("❌ 找不到資料，請確認代號是否正確 (或 Yahoo 暫時忙碌)。")
+                    st.error("❌ 找不到資料，請確認代號。")
                 else:
-                    # 2. 提取數據
-                    current_price = hist['Close'].iloc[-1] # 最後一筆就是最近的收盤價
-                    prev_close = hist['Close'].iloc[-2]    # 昨天的收盤價
-                    change = current_price - prev_close
+                    # 2. 提取現價
+                    current_price = hist['Close'].iloc[-1]
                     
-                    # 3. 計算均線 (阿姨的安全指標)
-                    ma60 = hist['Close'].rolling(window=60).mean().iloc[-1] # 季線 (60日)
-                    ma20 = hist['Close'].rolling(window=20).mean().iloc[-1] # 月線 (20日)
+                    # 3. 計算關鍵均線
+                    ma60 = hist['Close'].rolling(window=60).mean().iloc[-1]  # 季線 (中期保護)
+                    ma240 = hist['Close'].rolling(window=240).mean().iloc[-1] # 年線 (長期生命線)
                     
-                    # 4. 計算「便宜價」
-                    # 定義：如果比季線便宜 5%，就是特價
+                    # 4. 定義「便宜價」 (季線 95 折)
                     safe_price = ma60 * 0.95
                     
-                    # 5. 顯示結果
+                    # 5. 顯示數據看板
                     st.divider()
-                    
-                    # 第一排：股價卡片
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("參考股價", f"${current_price:.2f}", f"{change:.2f}", delta_color="inverse")
+                        st.metric("目前股價", f"${current_price:.2f}")
                     with col2:
-                        st.metric("季線 (平均成本)", f"${ma60:.2f}", "生命線")
+                        st.metric("季線 (60MA)", f"${ma60:.2f}")
                     with col3:
-                        st.metric("🎯 建議買入價", f"${safe_price:.2f}", "季線 95 折")
+                        # 這裡多顯示一個年線給阿姨參考
+                        st.metric("年線 (240MA)", f"${ma240:.2f}", "跌破很危險")
+
+                    # 6. AI 邏輯核心 (加入防接刀判斷)
+                    st.write("### 🤖 深度分析報告")
+
+                    # === 判斷邏輯開始 ===
                     
-                    # 第二排：AI 建議
-                    st.write("### 🤖 投資建議書")
-                    
+                    # 狀況一：股價真的很便宜 (低於建議價)
                     if current_price < safe_price:
-                        # 這是您最想要的功能：判斷是否便宜
-                        st.markdown(f"""
-                        <div style="padding:15px; background:#e8f5e9; border-left:5px solid green;">
-                            <h3>🟢 強力買進 (特價中)</h3>
-                            <p>現在價格 <b>${current_price:.2f}</b> 低於建議價 <b>${safe_price:.2f}</b>！</p>
-                            <p>股價已經跌破季線支撐，是難得的撿便宜機會。</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
+                        # 【關鍵修正】這裡加入第二道檢查：有沒有跌破年線？
+                        if current_price > ma240:
+                            # 在年線之上 -> 這是「回檔」，可以買！
+                            st.markdown(f"""
+                            <div style="padding:15px; background:#e8f5e9; border-left:5px solid green;">
+                                <h3>🟢 黃金坑：強力買進</h3>
+                                <p>股價跌破季線，出現便宜價 <b>${current_price:.2f}</b>。</p>
+                                <p>✅ <b>關鍵訊號：</b> 股價仍守在年線 (<b>${ma240:.2f}</b>) 之上，代表長期趨勢沒壞，這只是短期修正，是最好的進場點！</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            # 跌破年線 -> 這是「崩盤」，快逃！
+                            st.markdown(f"""
+                            <div style="padding:15px; background:#ffebee; border-left:5px solid red;">
+                                <h3>🔴 接刀警報：千萬別買！</h3>
+                                <p>雖然股價看起來很便宜，但它已經<b>跌破年線 (${ma240:.2f})</b>！</p>
+                                <p>⚠️ <b>危險訊號：</b> 連長期趨勢都轉弱了，這可能是公司出問題或空頭開始，股價可能會繼續跌，阿姨請忍住手，不要接刀。</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    # 狀況二：股價在合理區間
                     elif current_price < ma60:
                         st.markdown(f"""
                         <div style="padding:15px; background:#f1f8e9; border-left:5px solid #8bc34a;">
-                            <h3>🟢 分批買進 (合理區)</h3>
-                            <p>現在價格在季線 <b>${ma60:.2f}</b> 附近，成本合理。</p>
-                            <p>適合阿姨定期定額慢慢買。</p>
+                            <h3>🟢 分批佈局 (合理區)</h3>
+                            <p>股價在季線附近，屬於合理範圍。如果有閒錢可以買一點。</p>
                         </div>
                         """, unsafe_allow_html=True)
                         
-                    elif current_price > ma20:
-                        st.markdown(f"""
-                        <div style="padding:15px; background:#ffebee; border-left:5px solid red;">
-                            <h3>🔴 暫不追高 (過熱區)</h3>
-                            <p>股價現在很強勢 (<b>${current_price:.2f}</b>)，但也比較貴。</p>
-                            <p>建議等它回檔休息，接近 <b>${ma60:.2f}</b> 再考慮進場。</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
+                    # 狀況三：股價太貴
                     else:
-                        st.markdown("""
+                        st.markdown(f"""
                         <div style="padding:15px; background:#fffde7; border-left:5px solid orange;">
-                            <h3>🟡 觀望中 (盤整)</h3>
-                            <p>股價不上不下，可以再多觀察幾天。</p>
+                            <h3>🟡 暫時觀望 (偏貴)</h3>
+                            <p>目前股價強勢，但成本較高，建議不要追高。</p>
                         </div>
                         """, unsafe_allow_html=True)
-                    
-                    # 畫圖
-                    st.line_chart(hist['Close'])
-                    
+
+                    # 畫圖：把年線也畫出來讓阿姨看
+                    st.write("### 股價 vs 年線 (紅色是年線)")
+                    chart_data = pd.DataFrame({
+                        '股價': hist['Close'],
+                        '年線(240MA)': hist['Close'].rolling(window=240).mean()
+                    })
+                    st.line_chart(chart_data)
+
         except Exception as e:
-            st.error(f"分析時發生錯誤: {e}")
+            st.error(f"分析失敗: {e}")
