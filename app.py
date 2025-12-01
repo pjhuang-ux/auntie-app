@@ -1,287 +1,287 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import time
 import yfinance as yf
-import twstock 
+import twstock
+import altair as alt # 用來畫更漂亮的圖，解決顏色報錯問題
 
-# --- 設定網頁標題與圖示 ---
-st.set_page_config(page_title="阿姨的樂退寶", page_icon="👵")
+# --- 設定網頁 ---
+st.set_page_config(page_title="阿姨的樂退寶", page_icon="👵", layout="wide")
 
-# === 新增：抓資料專用的函數 (含快取與偽裝) ===
-@st.cache_data(ttl=3600) # 設定快取 1 小時 (3600秒)，不要一直去煩 Yahoo
-# === 修正版：抓資料函數 (移除 Session，保留快取) ===
-@st.cache_data(ttl=3600)
-def get_stock_data(ticker):
-    # 直接呼叫，不加任何偽裝，讓 yfinance 內部自己處理
-    stock = yf.Ticker(ticker)
-    
-    # 這裡加一個小小的延遲，避免瞬間請求太快被擋
-    time.sleep(0.1)
-    
-    # 抓取歷史資料
-    hist = stock.history(period="6mo")
-    
-    # 抓取基本資料 (容錯處理)
-    try:
-        info = stock.info
-    except:
-        info = {}
-        
-    return hist, info
-    
-# --- 側邊欄：登入與基本設定 ---
+# --- 側邊欄：使用者設定 ---
 with st.sidebar:
-    st.header("👵 阿姨設定區")
-    name = st.text_input("阿姨的大名", "春嬌阿姨")
+    st.header("👵 阿姨的個人檔案")
+    name = st.text_input("暱稱", "宜蘭阿姨")
     st.divider()
-    st.write("目前版本：v1.0 (雛形版)")
+    st.info("💡 這裡的資料會影響所有試算結果喔！")
 
-# --- 主頁面 ---
+# --- 主標題 ---
 st.title(f"👋 早安，{name}！")
 
-# 建立分頁 (Tabs)
-tab1, tab2, tab3 = st.tabs(["🌳 財富花園", "🧮 缺口試算", "🤖 AI 投資管家"])
+# 建立三個主要功能分頁
+tab1, tab2, tab3 = st.tabs(["🌳 財富花園 (成長)", "🧮 缺口試算 (現實)", "🤖 AI 投資管家 (行動)"])
 
-# === 分頁 1: 財富花園 ===
+# ========================================================
+# 分頁 1: 財富花園 (視覺化成長)
+# ========================================================
 with tab1:
-    st.subheader("您的退休樹養成計畫")
+    st.subheader("我的存錢桶長大計畫")
+    col_tree, col_msg = st.columns([1, 2])
     
-    # 模擬進度條
-    progress = st.slider("目前存錢進度測試 (拉看看)", 0, 100, 35)
+    # 模擬達成率 (這裡之後可以連動分頁2的缺口計算)
+    progress = st.slider("目前退休金準備進度 (%)", 0, 100, 30)
     
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        if progress < 30:
+    with col_tree:
+        if progress < 20:
             st.markdown("# 🌱")
-            st.caption("剛發芽，要多澆水(存錢)喔！")
-        elif progress < 70:
+            st.caption("剛播種，要耐心灌溉")
+        elif progress < 50:
+            st.markdown("# 🌿")
+            st.caption("長出葉子了，不能停！")
+        elif progress < 80:
             st.markdown("# 🌳")
-            st.caption("長大了！繼續保持！")
+            st.caption("大樹成蔭，快達標了")
         else:
             st.markdown("# 🍎🌳🍎")
-            st.caption("結實纍纍！可以準備退休了！")
+            st.caption("財富自由，準備採收！")
             if progress == 100:
                 st.balloons()
     
-    with col2:
-        st.info("只要每月多存 3,000 元，這棵樹明年會長高 10% 喔！")
+    with col_msg:
+        st.write("### 複利的威力")
+        st.write("假設妳每個月多存 5,000 元，投入年化報酬率 6% 的標的...")
         
-    # 模擬資產成長圖表
-    st.write("### 預估資產成長曲線")
-    chart_data = pd.DataFrame(
-        np.random.randn(20, 2).cumsum(0) + [100, 50],
-        columns=['跟著AI投資 (實線)', '只放定存 (虛線)']
-    )
-    st.line_chart(chart_data)
+        # 畫一個簡單的複利成長圖
+        years = np.arange(1, 21)
+        # 本金投入
+        principal = years * 5000 * 12
+        # 複利成長
+        compound = [5000 * 12 * (((1 + 0.06)**y - 1) / 0.06) for y in years]
+        
+        chart_data = pd.DataFrame({
+            "年分": years,
+            "只存銀行 (本金)": principal,
+            "樂退投資 (複利)": compound
+        })
+        
+        st.line_chart(chart_data, x="年分", color=["#aaaaaa", "#ff0000"])
+        st.caption("紅色線是投資的效果，灰色線是死存錢。時間越久差越多！")
 
-# === 分頁 2: 缺口試算 (專業精算版) ===
+# ========================================================
+# 分頁 2: 缺口試算 (包含宜蘭、通膨、壽命、勞保打折)
+# ========================================================
 with tab2:
-    st.subheader("🧮 退休金缺口精算機")
-    st.caption("依據「居住地消費水準」與「勞保/勞退公式」推算")
-
-    # --- 1. 資料輸入區 (左邊填資料，右邊看結果) ---
+    st.subheader("🧮 退休金缺口精算機 (含通膨與風險)")
+    
     col_input, col_result = st.columns([1, 1.2])
 
+    # --- 左側：輸入資料 ---
     with col_input:
-        st.markdown("#### 1️⃣ 妳的基本資料")
-        age = st.number_input("目前年齡", 30, 64, 50)
-        retire_age = st.number_input("預計退休年齡", 60, 75, 65)
+        st.markdown("#### 1️⃣ 生涯規劃")
+        age = st.number_input("目前年齡", 25, 70, 50)
+        retire_age = st.number_input("預計退休年齡", 55, 75, 65)
+        life_expectancy = st.number_input("預計活到幾歲 (長壽風險)", 70, 100, 85, help="這決定退休金要花多少年")
         
-        st.markdown("#### 2️⃣ 妳的工作與收入")
-        salary = st.number_input("目前月薪 (投保薪資)", 27470, 150000, 45000, step=1000, help="這會影響勞保跟勞退的金額")
-        work_years = st.number_input("已累積工作年資 (年)", 0, 40, 20, help="去勞保局查的年資")
-        lao_tui_saved = st.number_input("勞退專戶目前累積金額", 0, 5000000, 500000, step=10000, help="雇主幫妳提撥的那6%累積了多少")
+        st.markdown("#### 2️⃣ 財務現況")
+        salary = st.number_input("目前月薪 (投保薪資)", 27470, 150000, 42000, step=1000)
+        work_years = st.number_input("已累積勞保年資", 0, 40, 20)
+        lao_tui_saved = st.number_input("勞退帳戶目前金額", 0, 10000000, 600000, step=10000)
 
-        st.markdown("#### 3️⃣ 退休生活想像")
-        # 內建台灣各地區生活費資料庫 (參考主計處 + 通膨預估)
-        # 格式：[基礎生存, 舒適生活, 富裕享受]
+        st.markdown("#### 3️⃣ 風險參數設定 (關鍵！)")
+        inflation_rate = st.slider("預估每年通膨率", 0.0, 5.0, 2.0, 0.1, format="%f%%", help="建議設 2%，錢會變薄")
+        lao_bao_discount = st.slider("勞保年金打折預估", 50, 100, 80, 5, help="預設 80% 代表政府改革後可能少領 2 成") / 100
+
+        st.markdown("#### 4️⃣ 生活品質")
+        # 新增宜蘭選項
         city_cost_db = {
             "台北市": [32000, 55000, 90000],
             "新北市": [26000, 42000, 70000],
             "桃園/新竹": [25000, 40000, 65000],
             "台中市": [24000, 38000, 60000],
             "台南/高雄": [23000, 35000, 55000],
+            "宜蘭縣": [22000, 32000, 50000], # 宜蘭行情
             "其他縣市": [20000, 30000, 50000]
         }
-        
-        city = st.selectbox("居住地點", list(city_cost_db.keys()))
-        life_style = st.select_slider("想要過什麼樣的退休生活？", options=["基礎(生存)", "舒適(生活)", "富裕(享受)"], value="舒適(生活)")
+        city = st.selectbox("居住地點", list(city_cost_db.keys()), index=5) # 預設選到宜蘭
+        life_style = st.select_slider("退休生活等級", options=["基礎(生存)", "舒適(生活)", "富裕(享受)"], value="舒適(生活)")
 
-    # --- 2. 後端計算核心 ---
-    # A. 算出每月需要多少錢
-    style_index = 0 if "基礎" in life_style else (1 if "舒適" in life_style else 2)
-    monthly_need = city_cost_db[city][style_index]
-
-    # B. 算出政府給多少錢 (勞保 + 勞退)
-    # 邏輯 1: 勞保老年年金 (公式：平均月投保薪資 × 年資 × 1.55%)
-    # 這裡做一個保守估計：假設目前薪資接近平均投保薪資 (最高採計 45800)
-    lao_bao_cap = min(salary, 45800) 
-    total_years = work_years + (retire_age - age) # 假設做到退休
-    lao_bao_monthly = lao_bao_cap * total_years * 0.0155
+    # --- 後端計算 ---
+    # 1. 計算退休後的生活費 (考慮通膨)
+    style_idx = 0 if "基礎" in life_style else (1 if "舒適" in life_style else 2)
+    current_cost = city_cost_db[city][style_idx]
     
-    # 邏輯 2: 勞工退休金 (月領概算)
-    # 假設未來每年薪資不變，雇主提撥 6%，投資報酬率保守估 2%
-    # 這裡用簡易算法：(已累積 + 未來提撥) / (預期餘命 20年 * 12個月)
-    future_years = retire_age - age
-    future_contribution = salary * 0.06 * 12 * future_years
-    total_lao_tui = lao_tui_saved + future_contribution
-    lao_tui_monthly = total_lao_tui / (20 * 12) # 假設領 20 年 (65歲~85歲)
+    years_to_retire = retire_age - age
+    retirement_duration = life_expectancy - retire_age # 退休後要活幾年
+    
+    # 未來每個月需要的錢 (複利公式)
+    future_monthly_cost = current_cost * ((1 + inflation_rate/100) ** years_to_retire)
+
+    # 2. 計算政府給的錢
+    # 勞保：年資 x 薪資 x 1.55% x 打折係數
+    total_work_years = work_years + years_to_retire
+    lao_bao_monthly = min(salary, 45800) * total_work_years * 0.0155 * lao_bao_discount
+    
+    # 勞退：(已存 + 未來存) / 退休餘命月數
+    future_save = salary * 0.06 * 12 * years_to_retire
+    total_lao_tui = lao_tui_saved + future_save
+    lao_tui_monthly = total_lao_tui / (retirement_duration * 12)
 
     govt_total = lao_bao_monthly + lao_tui_monthly
     
-    # C. 算出缺口
-    gap = monthly_need - govt_total
+    # 3. 缺口
+    gap = future_monthly_cost - govt_total
 
-    # --- 3. 右側結果顯示區 ---
+    # --- 右側：結果顯示 ---
     with col_result:
-        st.markdown("### 📊 試算結果 (月)")
+        st.write("### 📊 殘酷大對決")
         
-        # 顯示天平圖表
-        st.write("#### 資金天平")
-        col_need, col_have = st.columns(2)
-        with col_need:
-            st.metric("🔴 每月支出需求", f"${monthly_need:,}", help="依據妳選的地區與生活品質推算")
-        with col_have:
-            st.metric("🟢 政府退休金預估", f"${int(govt_total):,}", f"涵蓋率 {int(govt_total/monthly_need*100)}%")
-        
-        st.divider()
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            st.metric("退休時每月開銷 (含通膨)", f"${int(future_monthly_cost):,}", f"現在幣值: ${current_cost:,}")
+        with col_c2:
+            st.metric("政府給付預估 (含打折)", f"${int(govt_total):,}", f"勞保打 {int(lao_bao_discount*100)} 折")
 
-        # 顯示缺口
+        st.divider()
+        
         if gap > 0:
-            st.error(f"😱 殘酷現實：每月還缺 ${int(gap):,} 元")
+            st.error(f"😱 每月缺口：${int(gap):,}")
+            total_gap_asset = gap * 12 * retirement_duration
             st.markdown(f"""
-            這表示妳退休後，除了勞保勞退，
-            **每個月還要自己從存款掏出 {int(gap):,} 元** 才能過妳想要的生活。
-            
-            如果退休後要活 20 年，妳現在的存錢目標是：
-            ### 💰 **${int(gap * 12 * 20 / 10000):,} 萬元**
+            阿姨，因為通膨和勞保縮水，
+            妳需要準備 **${int(total_gap_asset/10000):,} 萬元** 的老本才夠花 **{retirement_duration}** 年！
             """)
         else:
-            st.balloons()
-            st.success(f"🎉 恭喜！妳的退休金非常充裕！")
-            st.markdown(f"每個月還多出 **${int(-gap):,}** 元，可以常常出國玩了！")
+            st.success("🎉 恭喜！妳的退休金非常充裕！")
 
-        # 顯示詳細組成 (Stacked Bar)
-        st.write("#### 退休金組成分析")
-        df_chart = pd.DataFrame({
-            "金額": [lao_bao_monthly, lao_tui_monthly, max(0, gap)],
-            "來源": ["① 勞保年金", "② 勞退月領", "③ 資金缺口 (靠投資)"]
+        # --- 解決圖表報錯，改用 Altair ---
+        st.write("#### 資金來源組成")
+        chart_data = pd.DataFrame({
+            '來源': ['① 勞保年金', '② 勞退月領', '③ 資金缺口'],
+            '金額': [lao_bao_monthly, lao_tui_monthly, max(0, gap)],
+            'Color': ['#4CAF50', '#8BC34A', '#FF5252'] # 指定顏色
         })
-        # 這裡用簡單的長條圖
-        st.bar_chart(df_chart, x="來源", y="金額", color=["#4CAF50", "#8BC34A", "#FF5252"])
+        
+        # 使用 Altair 繪圖 (不會報錯)
+        c = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X('來源', sort=None),
+            y='金額',
+            color=alt.Color('來源', scale=alt.Scale(
+                domain=['① 勞保年金', '② 勞退月領', '③ 資金缺口'],
+                range=['#4CAF50', '#8BC34A', '#FF5252']
+            )),
+            tooltip=['來源', '金額']
+        )
+        st.altair_chart(c, use_container_width=True)
 
-        # 展開詳細數據
-        with st.expander("查看詳細計算數據"):
-            st.write(f"**預估工作總年資：** {total_years} 年")
-            st.write(f"**勞保計算：** ${lao_bao_cap} × {total_years}年 × 1.55% = ${int(lao_bao_monthly):,}/月")
-            st.write(f"**勞退估算：** 總累積約 ${int(total_lao_tui):,} (分20年領) ≈ ${int(lao_tui_monthly):,}/月")
-            st.caption("註：此為概算，未計入勞保破產風險與通膨，僅供規劃參考。")
-
-
-# === 分頁 3: AI 選股 (中文名 + 上市上櫃通吃版) ===
+# ========================================================
+# 分頁 3: AI 投資管家 (含推薦與資產配置)
+# ========================================================
 with tab3:
     st.subheader("🤖 AI 投資管家")
-    st.caption("策略：季線撿便宜 + 年線當保險")
     
     # 搜尋框
-    stock_input = st.text_input("請輸入台股代號", "6217", help="輸入數字即可，例如 2330 或 6217")
-    
-    if st.button("AI 診斷"):
+    col_s1, col_s2 = st.columns([3, 1])
+    with col_s1:
+        stock_input = st.text_input("輸入代號搜尋", "00878", help="例如 2330, 0050, 6217")
+    with col_s2:
+        st.write("") 
+        st.write("") 
+        btn = st.button("AI 診斷", use_container_width=True)
+
+    if btn:
         code = stock_input.strip()
-        
-        # --- 步驟 1: 取得中文名稱 (離線查詢，不會報錯) ---
-        # 使用 twstock 的內建清單查中文名
+        # 取得中文名稱
         if code in twstock.codes:
             stock_info = twstock.codes[code]
-            ch_name = stock_info.name # 例如：中探針
-            market_type = stock_info.market # 例如：上市 或 上櫃
+            ch_name = stock_info.name
         else:
-            ch_name = code # 查不到就顯示代號
-            market_type = "未知"
-
-        st.info(f"正在搜尋：{code} {ch_name} ({market_type})...")
+            ch_name = code
 
         try:
-            with st.spinner("正在連線 Yahoo Finance 分析歷史數據..."):
-                # --- 步驟 2: 雙軌偵測 (上市.TW vs 上櫃.TWO) ---
-                # 策略：先試試看上市 (.TW)
-                ticker_key = f"{code}.TW"
-                stock = yf.Ticker(ticker_key)
+            with st.spinner(f"正在分析 {ch_name} ..."):
+                # 雙軌偵測
+                ticker = f"{code}.TW"
+                stock = yf.Ticker(ticker)
                 hist = stock.history(period="2y")
                 
-                # 如果上市抓不到資料 (empty)，就改試試看上櫃 (.TWO)
                 if hist.empty:
-                    ticker_key = f"{code}.TWO" # 改成上櫃後綴
-                    stock = yf.Ticker(ticker_key)
+                    ticker = f"{code}.TWO"
+                    stock = yf.Ticker(ticker)
                     hist = stock.history(period="2y")
-                
-                # 如果還是空的，那就真的沒救了
+
                 if hist.empty:
-                    st.error(f"❌ 找不到 {code} 的資料。")
-                    st.caption("可能原因：1.代號錯誤 2.剛上市不滿一年 3.Yahoo 資料庫暫時缺失")
+                    st.error("❌ 找不到資料。")
                 else:
-                    # --- 步驟 3: 數據分析 (跟之前一樣) ---
-                    # 提取現價
+                    # 數據提取
                     current_price = hist['Close'].iloc[-1]
-                    
-                    # 計算關鍵均線
-                    ma60 = hist['Close'].rolling(window=60).mean().iloc[-1]   # 季線
-                    ma240 = hist['Close'].rolling(window=240).mean().iloc[-1] # 年線
-                    
-                    # 定義「便宜價」
+                    ma60 = hist['Close'].rolling(window=60).mean().iloc[-1]
+                    ma240 = hist['Close'].rolling(window=240).mean().iloc[-1]
                     safe_price = ma60 * 0.95
                     
-                    # === 介面優化區 ===
-                    st.divider()
-                    
-                    # 標題：現在顯示中文了！
-                    st.markdown(f"## 📊 {ch_name} ({code})")
-                    st.caption(f"市場別：{market_type} | 資料來源：Yahoo Finance")
-                    
-                    # 數據看板
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("目前股價", f"${current_price:.2f}")
-                    with col2:
-                        st.metric("🎯 建議買入價", f"${safe_price:.2f}", "季線95折")
-                    with col3:
-                        st.metric("季線 (60MA)", f"${ma60:.2f}")
-                    with col4:
-                        st.metric("年線 (240MA)", f"${ma240:.2f}")
+                    # 顯示數據
+                    st.markdown(f"### 📊 {ch_name} ({code})")
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("股價", f"${current_price:.2f}")
+                    c2.metric("建議價", f"${safe_price:.2f}")
+                    c3.metric("季線", f"${ma60:.2f}")
+                    c4.metric("年線", f"${ma240:.2f}")
 
-                    # === AI 判斷邏輯 ===
-                    st.write("### 🤖 AI 診斷報告")
-
-                    # 狀況一：出現便宜價
-                    if current_price < safe_price:
-                        if current_price > ma240:
-                            st.success(f"🟢 黃金坑：強力買進 ({ch_name} 特價中)")
-                            st.info(f"股價 ${current_price:.2f} 低於建議價，且守住年線，長線看好！")
-                        else:
-                            st.error(f"🔴 接刀警報：{ch_name} 已跌破年線！")
-                            st.warning(f"雖然便宜，但長期趨勢轉空 (跌破 ${ma240:.2f})，建議避開。")
-
-                    # 狀況二：合理區間
+                    # AI 判斷
+                    st.write("#### 🤖 投資建議")
+                    score = 0
+                    if current_price < safe_price and current_price > ma240:
+                        score = 90
+                        st.success("🟢 **強力買進** (便宜且多頭)")
                     elif current_price < ma60:
-                        st.success("🟢 合理區間：分批買")
-                        st.info("股價在季線附近，成本合理。")
-                        
-                    # 狀況三：太貴
+                        score = 75
+                        st.success("🟢 **分批買進** (價格合理)")
+                    elif current_price < ma240:
+                        score = 40
+                        st.error("🔴 **勿接刀** (已跌破年線)")
                     else:
-                        st.warning("🟡 過熱區間：觀望")
-                        st.info("目前股價較高，建議等待回檔。")
+                        score = 60
+                        st.warning("🟡 **觀望** (股價偏高)")
+                        
+                    # 圖表
+                    chart_df = pd.DataFrame({'Price': hist['Close'], 'MA240': hist['Close'].rolling(window=240).mean()}).tail(250)
+                    st.line_chart(chart_df, color=["#888888", "#ff0000"])
 
-                    # === 圖表區 ===
-                    st.write(f"### 📈 {ch_name} 股價 vs 年線走勢")
+                    # === 新增功能：資金分配與推薦 (Requirement ⑦) ===
+                    st.divider()
+                    st.subheader("💰 資金分配建議")
                     
-                    chart_data = pd.DataFrame({
-                        '股價': hist['Close'],
-                        '年線(240MA)': hist['Close'].rolling(window=240).mean()
-                    }).tail(250) 
+                    # 依據分數給建議
+                    if score >= 75:
+                        st.info(f"💡 這檔股票評分 **{score}分**，體質不錯！")
+                        st.markdown("""
+                        **建議本月閒錢分配：**
+                        *   **40% 買這檔股票** (把握機會)
+                        *   **60% 買 ETF** (如 00878, 0050) 保持穩健
+                        """)
+                    elif score <= 50:
+                        st.warning(f"💡 這檔股票評分 **{score}分**，風險高！")
+                        st.markdown("""
+                        **建議本月分配：**
+                        *   ❌ **不要買這檔**
+                        *   **100% 存入核心 ETF** 或保留現金等待
+                        """)
+                    else:
+                        st.markdown("""
+                        **建議分配：**
+                        *   **20% 少量試單**
+                        *   **80% 買 ETF**
+                        """)
+
+                    # 投資風格推薦
+                    with st.expander("📌 查看適合我的長期投資清單"):
+                        st.write("根據阿姨穩健退休的需求，我們推薦：")
+                        st.table(pd.DataFrame({
+                            "代號": ["00878", "0056", "0050", "2412"],
+                            "名稱": ["國泰永續高股息", "元大高股息", "元大台灣50", "中華電"],
+                            "類型": ["領息首選", "領息老牌", "跟著大盤漲", "防禦型個股"]
+                        }))
                     
-                    st.line_chart(chart_data, color=["#888888", "#FF0000"])
-                    st.caption("灰色線：每日股價 / 紅色線：年線 (生命線)")
+                    st.caption("🔔 每月健檢：建議每月 1 號回來這裡，看看手中持股有沒有跌破年線喔！")
 
         except Exception as e:
-            st.error("分析時發生錯誤: " + str(e))
+            st.error(f"分析錯誤: {e}")
