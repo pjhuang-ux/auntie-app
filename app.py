@@ -169,6 +169,53 @@ with tab3:
                             st.markdown(f"""
                             <div style="padding:15px; background:#e8f5e9; border-left:5px solid green;">
                                 <h3>🟢 黃金坑：強力買進</h3>
+                                <p>股價 <b>${current_price:.2f}</b> 已經低於建議價 <b>${safe_price:.2f}</b>！</p>
+                                <p>✅ <b>安全確認：</b> 股價仍守在年線之上，長線趨勢向上，這是標準的回檔撿便宜機會。</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"""
+                            <div style="padding:15px; background:#ffebee; border-left:5px solid red;">
+                                <h3>🔴 接刀警報：千萬別買！</h3>
+                                <p>雖然股價看起來便宜，但已經<b>跌破年線 (${ma240:.2f})</b>。</p>
+                                <p>⚠️ <b>危險：</b> 長期趨勢轉弱 (空頭)，股價可能會繼續跌深，建議阿姨忍住手。</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    # 狀況二：合理區間
+                    elif current_price < ma60:
+                        st.markdown(f"""
+                        <div style="padding:15px; background:#f1f8e9; border-left:5px solid #8bc34a;">
+                            <h3>🟢 合理區間：分批買</h3>
+                            <p>股價在季線附近，尚未出現特價，但成本合理，適合定期定額。</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    # 狀況三：太貴
+                    else:
+                        st.markdown(f"""
+                        <div style="padding:15px; background:#fffde7; border-left:5px solid orange;">
+                            <h3>🟡 過熱區間：觀望</h3>
+                            <p>目前股價強勢，但成本較高，建議等待回檔。</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # === 圖表區 (修復顏色與顯示) ===
+                    st.write("### 📈 股價 vs 年線走勢")
+                    
+                    # 準備畫圖資料：只取最近一年來畫，不然兩年太擠了
+                    chart_data = pd.DataFrame({
+                        '股價': hist['Close'],
+                        '年線(240MA)': hist['Close'].rolling(window=240).mean()
+                    }).tail(250) # 只顯示最近 250 天
+                    
+                    # 指定顏色：股價用藍色/灰色，年線用紅色 (#FF0000)
+                    st.line_chart(chart_data, color=["#888888", "#FF0000"])
+                    
+                    st.caption("灰色線：每日股價 / 紅色線：年線 (生命線)")
+
+        except Exception as e:
+            st.error(f"分析失敗: {e}")
                                 <p>股價 <b>${cur
 
         except Exception as e:
