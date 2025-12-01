@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import time
 import yfinance as yf
-import requests
+import twstock 
 
 # --- 設定網頁標題與圖示 ---
 st.set_page_config(page_title="阿姨的樂退寶", page_icon="👵")
@@ -104,83 +104,114 @@ with tab2:
     else:
         st.success("🎉 太棒了！您的退休金夠用了！")
 
-# === 分頁 3: AI 選股 (修正連線版) ===
+# === 分頁 3: AI 選股 (升級版：即時報價 + 建議價格) ===
 with tab3:
-    st.subheader("🤖 AI 投資管家 (即時連線)")
-    st.caption("我們會分析：趨勢(均線)、價值(本益比)、風險(波動度)")
+    st.subheader("🤖 AI 投資管家")
+    st.caption("結合「證交所即時報價」與「技術均線」分析")
     
-    stock_input = st.text_input("請輸入台股代號", "2330", help="不用打.TW")
+    stock_input = st.text_input("請輸入台股代號", "2330", help="輸入數字即可")
     
-    if st.button("開始 AI 診斷"):
-        ticker = stock_input.strip()
-        if not ticker.endswith(".TW"):
-            ticker = ticker + ".TW"
-            
+    if st.button("AI 診斷"):
+        ticker_code = stock_input.strip()
+        
+        # --- 階段一：抓即時股價 (使用 twstock，最穩) ---
         try:
-            with st.spinner(f"正在連線證交所抓取 {ticker} 資料..."):
-                # === 這裡改用我們剛剛寫好的新函數 ===
-                hist, info = get_stock_data(ticker)
+            # 這是連線到台灣證交所，通常不會失敗
+            realtime_stock = twstock.realtime.get(ticker_code)
             
-            if hist.empty:
-                st.error("❌ 抓不到資料，可能是代號錯誤，或是 Yahoo 暫時擋住了連線。")
+            if realtime_stock['success']:
+                # 抓到了！
+                latest_price = float(realtime_stock['realtime']['latest_trade_price'])
+                high_price = float(realtime_stock['realtime']['high'])
+                low_price = float(realtime_stock['realtime']['low'])
+                stock_name = realtime_stock['info']['name']
+                
+                st.success(f"✅ 成功連線：{ticker_code} {stock_name}")
             else:
-                # 後面的邏輯跟原本一樣，不用變
-                current_price = hist['Close'].iloc[-1]
-                ma60 = hist['Close'].rolling(window=60).mean().iloc[-1]
+                st.error(f"❌ 找不到代號 {ticker_code}，請確認是否輸入正確。")
+                st.stop() # 停在這裡，不往下跑
                 
-                # 避免資料缺失的防呆機制
-                div_yield = info.get('dividendYield', 0) if info else 0
-                if div_yield is None: div_yield = 0
+        except Exception as e:
+            st.error(f"連線證交所失敗: {e}")
+            st.stop()
+
+        # --- 階段二：抓歷史趨勢算「便宜價」 (使用 yfinance) ---
+        # 為什麼要分開？因為 yfinance 算均線比較方便，但容易被擋
+        # 就算這段失敗，至少上面阿姨已經看到現在幾塊錢了
+        
+        try:
+            with st.spinner("正在計算合理價格與均線..."):
+                yf_ticker = f"{ticker_code}.TW"
+                stock_yf = yf.Ticker(yf_ticker)
                 
-                score = 60
-                reasons = []
+                # 抓半年資料來算季線
+                hist = stock_yf.history(period="6mo")
                 
-                # 判斷 A: 趨勢
-                if current_price > ma60:
-                    score += 20
-                    reasons.append("✅ 股價在季線之上，趨勢向上")
+                if not hist.empty:
+                    # 1. 計算關鍵指標
+                    ma60 = hist['Close'].rolling(window=60).mean().iloc[-1] # 季線 (生命線)
+                    ma20 = hist['Close'].rolling(window=20).mean().iloc[-1] # 月線
+                    
+                    # 2. 定義「阿姨建議買入價」
+                    # 邏輯：季線(60MA)是中長期的成本區，接近季線通常是好買點
+                    target_price = ma60 
+                    safe_price = ma60 * 0.95 # 如果跌破季線 5%，就是超跌便宜價
+                    
+                    # 3. 判斷現在貴不貴？
+                    gap = (latest_price - ma60) / ma60 * 100 # 乖離率
+                    
+                    # --- 顯示分析結果 ---
+                    st.divider()
+                    
+                    # 第一排：股價與建議
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.metric("目前股價", f"${latest_price}", f"今日高低 {high_price}~{low_price}")
+                    with c2:
+                        st.metric("季線 (生命線)", f"${int(ma60)}", "長期支撐參考")
+                    with c3:
+                        # 這是您要的功能：顯示建議買點
+                        st.metric("🎯 建議買入價", f"${int(safe_price)}", "季線打95折")
+
+                    # 第二排：AI 講評
+                    st.write("### 🤖 AI 投資建議書")
+                    
+                    if latest_price < safe_price:
+                        st.markdown("""
+                        <div style="padding:15px; background:#e8f5e9; border-left:5px solid green;">
+                            <h3>🟢 強力買進 (超值區)</h3>
+                            <p>現在股價已經<b>跌破季線支撐區</b>，是非常難得的便宜價！阿姨可以分批進場撿便宜。</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    elif latest_price < ma60:
+                        st.markdown("""
+                        <div style="padding:15px; background:#f1f8e9; border-left:5px solid #8bc34a;">
+                            <h3>🟢 建議買進 (合理區)</h3>
+                            <p>股價回到季線附近，長線來看成本合理，適合存股族慢慢買。</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    elif gap > 10:
+                        st.markdown("""
+                        <div style="padding:15px; background:#ffebee; border-left:5px solid red;">
+                            <h3>🔴 暫停買進 (過熱區)</h3>
+                            <p>現在股價漲太多了（離季線太遠），隨時可能回檔。阿姨先不要追高，<b>等到股價回到 ${int(ma60)} 左右再考慮。</b></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                        <div style="padding:15px; background:#fffde7; border-left:5px solid orange;">
+                            <h3>🟡 續抱/觀望 (盤整區)</h3>
+                            <p>股價在合理範圍內波動，如果有錢閒著可以買一點，或是再等等看。</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 畫圖
+                    st.line_chart(hist['Close'])
+                    
                 else:
-                    score -= 20
-                    reasons.append("⚠️ 股價跌破季線，趨勢偏弱")
-
-                # 判斷 B: 殖利率
-                if div_yield > 0.04:
-                    score += 10
-                    reasons.append(f"✅ 殖利率 {div_yield*100:.2f}% 相當不錯")
-                elif div_yield < 0.01:
-                    reasons.append("⚠️ 殖利率偏低")
-
-                # 顯示結果
-                st.divider()
-                st.metric("目前股價", f"${current_price:.2f}")
-                
-                if score >= 80:
-                    title = "🟢 AI 建議：買進/持有"
-                    bg_color = "#e8f5e9"
-                    border_color = "green"
-                elif score >= 60:
-                    title = "🟡 AI 建議：觀望"
-                    bg_color = "#fffde7"
-                    border_color = "#fbc02d"
-                else:
-                    title = "🔴 AI 建議：小心/賣出"
-                    bg_color = "#ffebee"
-                    border_color = "red"
-
-                st.markdown(f"""
-                <div style="padding:20px; border:2px solid {border_color}; border-radius:10px; background-color:{bg_color}; color:black;">
-                    <h3 style="margin:0;">{title}</h3>
-                    <p style="font-size:24px; font-weight:bold;">樂退分：{score} 分</p>
-                    <hr>
-                    <ul>
-                        {''.join([f'<li>{r}</li>' for r in reasons])}
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.write("### 近半年走勢圖")
-                st.line_chart(hist['Close'])
+                    st.warning("⚠️ 抓得到即時股價，但分析歷史趨勢時連線不穩。請過幾分鐘再試試看詳細圖表。")
 
         except Exception as e:
-            # 這裡會顯示比較詳細的錯誤，方便除錯
-            st.error(f"系統忙碌中，請過幾秒再試一次。(錯誤: {e})")
+            st.warning(f"分析歷史數據時發生小錯誤 (但不影響報價): {e}")
