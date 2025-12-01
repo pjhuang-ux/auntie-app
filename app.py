@@ -105,74 +105,88 @@ with tab2:
         st.success("🎉 太棒了！您的退休金夠用了！")
 
 
-# === 分頁 3: AI 選股 (修復版) ===
+# === 分頁 3: AI 選股 (中文名 + 上市上櫃通吃版) ===
 with tab3:
     st.subheader("🤖 AI 投資管家")
     st.caption("策略：季線撿便宜 + 年線當保險")
     
-    stock_input = st.text_input("請輸入台股代號", "2330", help="輸入數字即可")
+    # 搜尋框
+    stock_input = st.text_input("請輸入台股代號", "6217", help="輸入數字即可，例如 2330 或 6217")
     
     if st.button("AI 診斷"):
-        ticker_code = stock_input.strip()
-        if not ticker_code.endswith(".TW"):
-            ticker_code = ticker_code + ".TW"
+        code = stock_input.strip()
+        
+        # --- 步驟 1: 取得中文名稱 (離線查詢，不會報錯) ---
+        # 使用 twstock 的內建清單查中文名
+        if code in twstock.codes:
+            stock_info = twstock.codes[code]
+            ch_name = stock_info.name # 例如：中探針
+            market_type = stock_info.market # 例如：上市 或 上櫃
+        else:
+            ch_name = code # 查不到就顯示代號
+            market_type = "未知"
+
+        st.info(f"正在搜尋：{code} {ch_name} ({market_type})...")
 
         try:
-            with st.spinner(f"正在連線 Yahoo 抓取 {ticker_code} (過去兩年數據)..."):
-                # 1. 改抓「2年」資料
-                stock = yf.Ticker(ticker_code)
+            with st.spinner("正在連線 Yahoo Finance 分析歷史數據..."):
+                # --- 步驟 2: 雙軌偵測 (上市.TW vs 上櫃.TWO) ---
+                # 策略：先試試看上市 (.TW)
+                ticker_key = f"{code}.TW"
+                stock = yf.Ticker(ticker_key)
                 hist = stock.history(period="2y")
                 
-                # 嘗試抓取股票名稱
-                try:
-                    stock_name = stock.info.get('longName', ticker_code)
-                except:
-                    stock_name = ticker_code 
-                
+                # 如果上市抓不到資料 (empty)，就改試試看上櫃 (.TWO)
                 if hist.empty:
-                    st.error("❌ 找不到資料，請確認代號。")
+                    ticker_key = f"{code}.TWO" # 改成上櫃後綴
+                    stock = yf.Ticker(ticker_key)
+                    hist = stock.history(period="2y")
+                
+                # 如果還是空的，那就真的沒救了
+                if hist.empty:
+                    st.error(f"❌ 找不到 {code} 的資料。")
+                    st.caption("可能原因：1.代號錯誤 2.剛上市不滿一年 3.Yahoo 資料庫暫時缺失")
                 else:
-                    # 2. 提取現價
+                    # --- 步驟 3: 數據分析 (跟之前一樣) ---
+                    # 提取現價
                     current_price = hist['Close'].iloc[-1]
                     
-                    # 3. 計算關鍵均線
+                    # 計算關鍵均線
                     ma60 = hist['Close'].rolling(window=60).mean().iloc[-1]   # 季線
                     ma240 = hist['Close'].rolling(window=240).mean().iloc[-1] # 年線
                     
-                    # 4. 定義「便宜價」 (季線 95 折)
+                    # 定義「便宜價」
                     safe_price = ma60 * 0.95
                     
                     # === 介面優化區 ===
                     st.divider()
                     
-                    # 標題
-                    # 使用 replace 把 .TW 拿掉顯示比較乾淨
-                    clean_code = ticker_code.replace('.TW', '')
-                    st.markdown(f"## 📊 {stock_name} ({clean_code})")
+                    # 標題：現在顯示中文了！
+                    st.markdown(f"## 📊 {ch_name} ({code})")
+                    st.caption(f"市場別：{market_type} | 資料來源：Yahoo Finance")
                     
-                    # 第一排數據
+                    # 數據看板
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("目前股價", f"${current_price:.2f}")
                     with col2:
                         st.metric("🎯 建議買入價", f"${safe_price:.2f}", "季線95折")
                     with col3:
-                        st.metric("季線 (60MA)", f"${ma60:.2f}", "中期成本")
+                        st.metric("季線 (60MA)", f"${ma60:.2f}")
                     with col4:
-                        st.metric("年線 (240MA)", f"${ma240:.2f}", "長期多空")
+                        st.metric("年線 (240MA)", f"${ma240:.2f}")
 
                     # === AI 判斷邏輯 ===
                     st.write("### 🤖 AI 診斷報告")
 
                     # 狀況一：出現便宜價
                     if current_price < safe_price:
-                        # 檢查有沒有跌破年線
                         if current_price > ma240:
-                            st.success("🟢 黃金坑：強力買進 (股價便宜且守住年線)")
-                            st.info(f"股價 ${current_price:.2f} 已經低於建議價 ${safe_price:.2f}，且長期趨勢向上。")
+                            st.success(f"🟢 黃金坑：強力買進 ({ch_name} 特價中)")
+                            st.info(f"股價 ${current_price:.2f} 低於建議價，且守住年線，長線看好！")
                         else:
-                            st.error("🔴 接刀警報：千萬別買！(已跌破年線)")
-                            st.warning(f"雖然便宜，但已經跌破年線 ${ma240:.2f}，趨勢轉空。")
+                            st.error(f"🔴 接刀警報：{ch_name} 已跌破年線！")
+                            st.warning(f"雖然便宜，但長期趨勢轉空 (跌破 ${ma240:.2f})，建議避開。")
 
                     # 狀況二：合理區間
                     elif current_price < ma60:
@@ -185,18 +199,15 @@ with tab3:
                         st.info("目前股價較高，建議等待回檔。")
 
                     # === 圖表區 ===
-                    st.write("### 📈 股價 vs 年線走勢")
+                    st.write(f"### 📈 {ch_name} 股價 vs 年線走勢")
                     
-                    # 準備畫圖資料
                     chart_data = pd.DataFrame({
                         '股價': hist['Close'],
                         '年線(240MA)': hist['Close'].rolling(window=240).mean()
                     }).tail(250) 
                     
-                    # 指定顏色 (使用 list)
                     st.line_chart(chart_data, color=["#888888", "#FF0000"])
                     st.caption("灰色線：每日股價 / 紅色線：年線 (生命線)")
 
         except Exception as e:
-            # 這裡改成不使用 f-string，避免語法錯誤
             st.error("分析時發生錯誤: " + str(e))
