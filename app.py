@@ -10,22 +10,19 @@ st.set_page_config(page_title="阿姨的樂退寶", page_icon="👵")
 
 # === 新增：抓資料專用的函數 (含快取與偽裝) ===
 @st.cache_data(ttl=3600) # 設定快取 1 小時 (3600秒)，不要一直去煩 Yahoo
+# === 修正版：抓資料函數 (移除 Session，保留快取) ===
+@st.cache_data(ttl=3600)
 def get_stock_data(ticker):
-    # 1. 偽裝成瀏覽器 (User-Agent)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
+    # 直接呼叫，不加任何偽裝，讓 yfinance 內部自己處理
+    stock = yf.Ticker(ticker)
     
-    # 2. 建立專屬連線
-    session = requests.Session()
-    session.headers.update(headers)
+    # 這裡加一個小小的延遲，避免瞬間請求太快被擋
+    time.sleep(0.1)
     
-    # 3. 透過 yfinance 抓取
-    stock = yf.Ticker(ticker, session=session)
-    
-    # 強制抓取歷史資料
+    # 抓取歷史資料
     hist = stock.history(period="6mo")
-    # 抓取基本資料 (如果被擋，info 常常會是空的，這邊做個保護)
+    
+    # 抓取基本資料 (容錯處理)
     try:
         info = stock.info
     except:
@@ -107,7 +104,6 @@ with tab2:
     else:
         st.success("🎉 太棒了！您的退休金夠用了！")
 
-# === 分頁 3: AI 選股 (真槍實彈版) ===
 # === 分頁 3: AI 選股 (修正連線版) ===
 with tab3:
     st.subheader("🤖 AI 投資管家 (即時連線)")
