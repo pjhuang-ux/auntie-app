@@ -3,10 +3,36 @@ import pandas as pd
 import numpy as np
 import time
 import yfinance as yf
+import requests
 
 # --- 設定網頁標題與圖示 ---
 st.set_page_config(page_title="阿姨的樂退寶", page_icon="👵")
 
+# === 新增：抓資料專用的函數 (含快取與偽裝) ===
+@st.cache_data(ttl=3600) # 設定快取 1 小時 (3600秒)，不要一直去煩 Yahoo
+def get_stock_data(ticker):
+    # 1. 偽裝成瀏覽器 (User-Agent)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    # 2. 建立專屬連線
+    session = requests.Session()
+    session.headers.update(headers)
+    
+    # 3. 透過 yfinance 抓取
+    stock = yf.Ticker(ticker, session=session)
+    
+    # 強制抓取歷史資料
+    hist = stock.history(period="6mo")
+    # 抓取基本資料 (如果被擋，info 常常會是空的，這邊做個保護)
+    try:
+        info = stock.info
+    except:
+        info = {}
+        
+    return hist, info
+    
 # --- 側邊欄：登入與基本設定 ---
 with st.sidebar:
     st.header("👵 阿姨設定區")
@@ -82,97 +108,83 @@ with tab2:
         st.success("🎉 太棒了！您的退休金夠用了！")
 
 # === 分頁 3: AI 選股 (真槍實彈版) ===
+# === 分頁 3: AI 選股 (修正連線版) ===
 with tab3:
     st.subheader("🤖 AI 投資管家 (即時連線)")
     st.caption("我們會分析：趨勢(均線)、價值(本益比)、風險(波動度)")
     
-    # 輸入框
-    stock_input = st.text_input("請輸入台股代號", "2330", help="不用打.TW，直接打數字即可")
+    stock_input = st.text_input("請輸入台股代號", "2330", help="不用打.TW")
     
     if st.button("開始 AI 診斷"):
-        # 1. 處理代碼格式 (自動加上 .TW)
         ticker = stock_input.strip()
         if not ticker.endswith(".TW"):
             ticker = ticker + ".TW"
             
-        # 2. 抓取資料 (使用 yfinance)
         try:
             with st.spinner(f"正在連線證交所抓取 {ticker} 資料..."):
-                stock = yf.Ticker(ticker)
-                # 抓歷史股價 (過去半年)
-                hist = stock.history(period="6mo")
-                # 抓基本資料
-                info = stock.info
+                # === 這裡改用我們剛剛寫好的新函數 ===
+                hist, info = get_stock_data(ticker)
             
             if hist.empty:
-                st.error("❌ 找不到這檔股票，請檢查代號是否正確。")
+                st.error("❌ 抓不到資料，可能是代號錯誤，或是 Yahoo 暫時擋住了連線。")
             else:
-                # 3. 提取關鍵數據
-                current_price = hist['Close'].iloc[-1] # 最新收盤價
-                ma60 = hist['Close'].rolling(window=60).mean().iloc[-1] # 季線 (60日均線)
+                # 後面的邏輯跟原本一樣，不用變
+                current_price = hist['Close'].iloc[-1]
+                ma60 = hist['Close'].rolling(window=60).mean().iloc[-1]
                 
-                # 為了避免新股沒有本益比資料，做個防呆
-                pe_ratio = info.get('trailingPE', '無資料') 
-                div_yield = info.get('dividendYield', 0)
+                # 避免資料缺失的防呆機制
+                div_yield = info.get('dividendYield', 0) if info else 0
                 if div_yield is None: div_yield = 0
                 
-                # 4. AI 簡單判斷邏輯 (可以自己修改標準)
-                score = 60 # 基礎分
-                reasons = [] # 評語清單
+                score = 60
+                reasons = []
                 
-                # 判斷 A: 趨勢 (在季線上面嗎？)
+                # 判斷 A: 趨勢
                 if current_price > ma60:
                     score += 20
                     reasons.append("✅ 股價在季線之上，趨勢向上")
-                    trend_color = "red" # 台股漲是紅色
                 else:
                     score -= 20
                     reasons.append("⚠️ 股價跌破季線，趨勢偏弱")
-                    trend_color = "green" # 台股跌是綠色
 
-                # 判斷 B: 殖利率 (有沒有超過 4%)
+                # 判斷 B: 殖利率
                 if div_yield > 0.04:
                     score += 10
                     reasons.append(f"✅ 殖利率 {div_yield*100:.2f}% 相當不錯")
                 elif div_yield < 0.01:
-                    reasons.append("⚠️ 殖利率偏低 (可能是成長股)")
+                    reasons.append("⚠️ 殖利率偏低")
 
-                # 5. 顯示結果
+                # 顯示結果
                 st.divider()
-                st.metric("目前股價", f"${current_price:.2f}", 
-                          f"{(current_price - hist['Close'].iloc[-2]):.2f} (漲跌)", 
-                          delta_color="inverse") # inverse 讓漲變紅色
+                st.metric("目前股價", f"${current_price:.2f}")
                 
-                # 顯示 AI 評分卡
                 if score >= 80:
-                    bg_color = "#e8f5e9" # 淺綠底
-                    border_color = "green"
                     title = "🟢 AI 建議：買進/持有"
+                    bg_color = "#e8f5e9"
+                    border_color = "green"
                 elif score >= 60:
-                    bg_color = "#fffde7" # 淺黃底
-                    border_color = "#fbc02d"
                     title = "🟡 AI 建議：觀望"
+                    bg_color = "#fffde7"
+                    border_color = "#fbc02d"
                 else:
-                    bg_color = "#ffebee" # 淺紅底
-                    border_color = "red"
                     title = "🔴 AI 建議：小心/賣出"
+                    bg_color = "#ffebee"
+                    border_color = "red"
 
-                # 這裡用 HTML 畫出漂亮的卡片
                 st.markdown(f"""
                 <div style="padding:20px; border:2px solid {border_color}; border-radius:10px; background-color:{bg_color}; color:black;">
                     <h3 style="margin:0;">{title}</h3>
                     <p style="font-size:24px; font-weight:bold;">樂退分：{score} 分</p>
                     <hr>
-                    <p><b>🔍 分析報告：</b></p>
                     <ul>
                         {''.join([f'<li>{r}</li>' for r in reasons])}
                     </ul>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 畫出簡單的走勢圖
                 st.write("### 近半年走勢圖")
                 st.line_chart(hist['Close'])
 
         except Exception as e:
-            st.error(f"連線發生錯誤，請稍後再試。(錯誤代碼: {e})")
+            # 這裡會顯示比較詳細的錯誤，方便除錯
+            st.error(f"系統忙碌中，請過幾秒再試一次。(錯誤: {e})")
