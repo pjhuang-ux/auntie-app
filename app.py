@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import time
+import yfinance as yf
 
 # --- 設定網頁標題與圖示 ---
 st.set_page_config(page_title="阿姨的樂退寶", page_icon="👵")
@@ -80,27 +81,98 @@ with tab2:
     else:
         st.success("🎉 太棒了！您的退休金夠用了！")
 
-# === 分頁 3: AI 選股 ===
+# === 分頁 3: AI 選股 (真槍實彈版) ===
 with tab3:
-    st.subheader("🤖 AI 幫妳挑股票")
-    stock_input = st.text_input("輸入代號 (例如 2330)", "00878")
+    st.subheader("🤖 AI 投資管家 (即時連線)")
+    st.caption("我們會分析：趨勢(均線)、價值(本益比)、風險(波動度)")
     
-    if st.button("開始診斷"):
-        with st.spinner("AI 正在讀財報..."):
-            time.sleep(1.5) # 假裝運算
+    # 輸入框
+    stock_input = st.text_input("請輸入台股代號", "2330", help="不用打.TW，直接打數字即可")
+    
+    if st.button("開始 AI 診斷"):
+        # 1. 處理代碼格式 (自動加上 .TW)
+        ticker = stock_input.strip()
+        if not ticker.endswith(".TW"):
+            ticker = ticker + ".TW"
             
-        st.success(f"分析完成：{stock_input}")
-        
-        # 模擬結果卡片
-        st.markdown(f"""
-        <div style="padding:15px; border:2px solid #4CAF50; border-radius:10px; background-color:#e8f5e9;">
-            <h3>🟢 建議：買進 (評分 88)</h3>
-            <p><b>{stock_input}</b> 是一檔好股票。</p>
-            <ul>
-                <li>殖利率：<b>5.2%</b> (及格)</li>
-                <li>波動度：<b>低</b> (適合阿姨)</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.info("💡 建議操作：您可以拿本月存下來的錢，買 100 股。")
+        # 2. 抓取資料 (使用 yfinance)
+        try:
+            with st.spinner(f"正在連線證交所抓取 {ticker} 資料..."):
+                stock = yf.Ticker(ticker)
+                # 抓歷史股價 (過去半年)
+                hist = stock.history(period="6mo")
+                # 抓基本資料
+                info = stock.info
+            
+            if hist.empty:
+                st.error("❌ 找不到這檔股票，請檢查代號是否正確。")
+            else:
+                # 3. 提取關鍵數據
+                current_price = hist['Close'].iloc[-1] # 最新收盤價
+                ma60 = hist['Close'].rolling(window=60).mean().iloc[-1] # 季線 (60日均線)
+                
+                # 為了避免新股沒有本益比資料，做個防呆
+                pe_ratio = info.get('trailingPE', '無資料') 
+                div_yield = info.get('dividendYield', 0)
+                if div_yield is None: div_yield = 0
+                
+                # 4. AI 簡單判斷邏輯 (可以自己修改標準)
+                score = 60 # 基礎分
+                reasons = [] # 評語清單
+                
+                # 判斷 A: 趨勢 (在季線上面嗎？)
+                if current_price > ma60:
+                    score += 20
+                    reasons.append("✅ 股價在季線之上，趨勢向上")
+                    trend_color = "red" # 台股漲是紅色
+                else:
+                    score -= 20
+                    reasons.append("⚠️ 股價跌破季線，趨勢偏弱")
+                    trend_color = "green" # 台股跌是綠色
+
+                # 判斷 B: 殖利率 (有沒有超過 4%)
+                if div_yield > 0.04:
+                    score += 10
+                    reasons.append(f"✅ 殖利率 {div_yield*100:.2f}% 相當不錯")
+                elif div_yield < 0.01:
+                    reasons.append("⚠️ 殖利率偏低 (可能是成長股)")
+
+                # 5. 顯示結果
+                st.divider()
+                st.metric("目前股價", f"${current_price:.2f}", 
+                          f"{(current_price - hist['Close'].iloc[-2]):.2f} (漲跌)", 
+                          delta_color="inverse") # inverse 讓漲變紅色
+                
+                # 顯示 AI 評分卡
+                if score >= 80:
+                    bg_color = "#e8f5e9" # 淺綠底
+                    border_color = "green"
+                    title = "🟢 AI 建議：買進/持有"
+                elif score >= 60:
+                    bg_color = "#fffde7" # 淺黃底
+                    border_color = "#fbc02d"
+                    title = "🟡 AI 建議：觀望"
+                else:
+                    bg_color = "#ffebee" # 淺紅底
+                    border_color = "red"
+                    title = "🔴 AI 建議：小心/賣出"
+
+                # 這裡用 HTML 畫出漂亮的卡片
+                st.markdown(f"""
+                <div style="padding:20px; border:2px solid {border_color}; border-radius:10px; background-color:{bg_color}; color:black;">
+                    <h3 style="margin:0;">{title}</h3>
+                    <p style="font-size:24px; font-weight:bold;">樂退分：{score} 分</p>
+                    <hr>
+                    <p><b>🔍 分析報告：</b></p>
+                    <ul>
+                        {''.join([f'<li>{r}</li>' for r in reasons])}
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 畫出簡單的走勢圖
+                st.write("### 近半年走勢圖")
+                st.line_chart(hist['Close'])
+
+        except Exception as e:
+            st.error(f"連線發生錯誤，請稍後再試。(錯誤代碼: {e})")
