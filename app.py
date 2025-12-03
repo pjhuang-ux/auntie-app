@@ -233,7 +233,49 @@ with tab3:
     st.table(recommendations)
     
     st.divider()
+# === 新增功能：定期定額績效驗收 ===
+    with st.expander("📝 投資成績單：我每月固定存，績效有達標嗎？"):
+        st.caption("阿姨，因為妳是分批買，我們用「及格線」來檢查。輸入妳每月存多少，我幫妳算算看！")
+        
+        c_p1, c_p2, c_p3 = st.columns(3)
+        with c_p1:
+            monthly_pay = st.number_input("每月固定扣款金額 (元)", 1000, 1000000, 5000, step=1000)
+        with c_p2:
+            invest_duration = st.number_input("持續扣款多久了？ (月)", 1, 600, 24, step=1)
+            st.caption(f"約 {invest_duration/12:.1f} 年")
+        with c_p3:
+            current_value = st.number_input("現在庫存總市值 (元)", 0, 10000000, 130000, step=10000, help="請看券商APP顯示的總市值")
 
+        # 計算邏輯：定期定額的終值 (Future Value of Annuity)
+        # 公式：FV = PMT * (((1 + r)^n - 1) / r)
+        # 我們設定及格標準是年化 6% (月利率 0.5%)
+        target_rate = 0.06 / 12
+        total_cost = monthly_pay * invest_duration
+        
+        # 算出「如果這筆錢有達到6%，應該要變多少錢？」
+        target_value = monthly_pay * (((1 + target_rate) ** invest_duration - 1) / target_rate)
+        
+        if total_cost > 0:
+            st.divider()
+            
+            # 顯示比較結果
+            col_res1, col_res2 = st.columns(2)
+            with col_res1:
+                st.metric("妳的總投入本金", f"${int(total_cost):,}")
+                st.metric("目前實際市值", f"${int(current_value):,}")
+            with col_res2:
+                st.metric("6% 及格目標線", f"${int(target_value):,}", help="如果達到年化6%，至少應該要有這個數字")
+                diff = current_value - target_value
+                st.metric("與目標差距", f"${int(diff):,}", delta_color="normal")
+
+            # 講評
+            if current_value >= target_value:
+                st.success(f"🎉 **太棒了！成績優異！**\n\n妳的資產比「6% 及格線」還多了 **${int(diff):,}** 元。\n這代表妳的定期定額策略非常成功，年化報酬率超過 6% 囉！")
+                st.balloons()
+            elif current_value > total_cost:
+                st.info(f"🙂 **有賺錢，但還在努力中**\n\n雖然有賺錢 (比本金多 **${int(current_value-total_cost):,}**)，但還沒超過 6% 的及格線。\n如果是剛開始存前兩年，這很正常，繼續保持！")
+            else:
+                st.error(f"📉 **目前暫時虧損**\n\n現在市值低於本金。定期定額最喜歡這種時候（微笑曲線），因為現在買的單位數變多了，等行情回來會賺更快！")
     # 3. 個股 AI 診斷
     st.write("### 🔍 個股健康檢查")
     c_search, c_btn = st.columns([3, 1])
